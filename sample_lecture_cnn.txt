@@ -1,0 +1,54 @@
+# Lecture 4: Introduction to Convolutional Neural Networks (CNNs)
+Course: CS 231n - Deep Learning for Computer Vision
+Instructor: Dr. Fei-Fei Li
+
+## 1. Overview and Motivation
+Traditional Multi-Layer Perceptrons (MLPs) do not scale well to full images. In an MLP with 200x200x3 images, a single fully-connected neuron in the first hidden layer would have 120,000 weights! This leads to overfitting and massive parameter counts.
+
+Convolutional Neural Networks take advantage of spatial locality. Biological inspiration comes from Hubel and Wiesel's 1959 experiments on the cat visual cortex, discovering simple and complex cells.
+
+## 2. Architecture Components
+
+### 2.1 Convolutional Layer
+The primary building block of a CNN.
+- Filters (kernels) extend through the full depth of the input volume.
+- Stride $S$: step size with which the filter moves.
+- Zero-padding $P$: padding borders with zeros to control spatial output size.
+
+Formula for output spatial dimension:
+$$O = \frac{W - K + 2P}{S} + 1$$
+Where:
+- $W$ is the input volume width/height
+- $K$ is the kernel filter size
+- $P$ is the amount of zero-padding
+- $S$ is the stride
+
+Parameter sharing: We assume that if a feature is useful to compute at some spatial position $(x, y)$, then it is also useful to compute at a different position. This drastically reduces the number of learnable parameters.
+
+### 2.2 Activation Function: ReLU
+Rectified Linear Unit computes:
+$$f(x) = \max(0, x)$$
+Properties:
+- Does not saturate in the positive region.
+- Greatly accelerates convergence of stochastic gradient descent compared to sigmoid or tanh.
+- Dying ReLU problem: when neurons get knocked off during gradient descent and never activate again. Leaky ReLU solves this by having a small slope for negative values: $f(x) = \max(0.01x, x)$.
+
+### 2.3 Pooling Layer
+Reduces spatial size of representations to reduce parameters and computation in the network, thereby controlling overfitting.
+- Max Pooling: Takes the maximum value in a window (e.g., 2x2 with stride 2).
+- Average Pooling: Computes average value in the window (rarely used in intermediate conv layers).
+Pooling operates independently on each depth slice.
+
+### 2.4 Fully-Connected (FC) Layer
+Neurons in a fully connected layer have full connections to all activations in the previous layer, as in regular Neural Networks.
+
+## 3. Case Studies: Classical Architectures
+1. LeNet-5 (1998): Pioneered by Yann LeCun for handwritten digit recognition (MNIST).
+2. AlexNet (2012): Alex Krizhevsky, Ilya Sutskever, Geoffrey Hinton. Won ImageNet 2012 by a huge margin. Key innovations: ReLU, Dropout, GPU training (GTX 580).
+3. VGGNet (2014): Simonyan and Zisserman. Showed simplicity and depth: homogeneous 3x3 convolutions stacked together.
+
+## 4. Glossary of Terms
+- Receptive Field: The specific region of the input image that affects a particular unit's activation.
+- Stride: Number of pixels by which the convolution filter slides over the input matrix.
+- Feature Map: The output volume produced by convolving a filter across the input.
+- Cross-Entropy Loss: Objective function used for multi-class classification.

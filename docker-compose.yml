@@ -1,0 +1,155 @@
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # PostgreSQL 16 Database
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: lectureforge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lectureforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lectureforge}
+      POSTGRES_DB: ${POSTGRES_DB:-lectureforge}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lectureforge} -d ${POSTGRES_DB:-lectureforge}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lectureforge-network
+
+  # ----------------------------------------------------------------------------
+  # Redis 7 Cache & Task Broker
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: lectureforge-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lectureforge-network
+
+  # ----------------------------------------------------------------------------
+  # LectureForge AI FastAPI Backend API
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lectureforge-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-lectureforge}:${POSTGRES_PASSWORD:-lectureforge}@postgres:5432/${POSTGRES_DB:-lectureforge}
+      - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER:-lectureforge}:${POSTGRES_PASSWORD:-lectureforge}@postgres:5432/${POSTGRES_DB:-lectureforge}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - UPLOAD_DIR=/app/uploads
+      - EXPORT_DIR=/app/exports
+      - CORS_ORIGINS=["http://localhost:3000","http://frontend:3000"]
+    volumes:
+      - uploads_data:/app/uploads
+      - exports_data:/app/exports
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lectureforge-network
+
+  # ----------------------------------------------------------------------------
+  # Celery Asynchronous Pipeline Worker
+  # ----------------------------------------------------------------------------
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lectureforge-celery-worker
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app worker --loglevel=info -Q default
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-lectureforge}:${POSTGRES_PASSWORD:-lectureforge}@postgres:5432/${POSTGRES_DB:-lectureforge}
+      - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER:-lectureforge}:${POSTGRES_PASSWORD:-lectureforge}@postgres:5432/${POSTGRES_DB:-lectureforge}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - UPLOAD_DIR=/app/uploads
+      - EXPORT_DIR=/app/exports
+      - CORS_ORIGINS=["http://localhost:3000","http://frontend:3000"]
+    volumes:
+      - uploads_data:/app/uploads
+      - exports_data:/app/exports
+    depends_on:
+      backend:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lectureforge-network
+
+  # ----------------------------------------------------------------------------
+  # LectureForge AI Next.js Frontend
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    container_name: lectureforge-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-lectureforge}:${POSTGRES_PASSWORD:-lectureforge}@postgres:5432/${POSTGRES_DB:-lectureforge}
+      DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-lectureforge}:${POSTGRES_PASSWORD:-lectureforge}@postgres:5432/${POSTGRES_DB:-lectureforge}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      UPLOAD_DIR: /app/uploads
+      EXPORT_DIR: /app/exports
+      CORS_ORIGINS: '["http://localhost:3000","http://frontend:3000"]'
+
+# ------------------------------------------------------------------------------
+# Persistent Storage Volumes
+# ------------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  uploads_data:
+    driver: local
+  exports_data:
+    driver: local
+
+# ------------------------------------------------------------------------------
+# Shared Bridge Network
+# ------------------------------------------------------------------------------
+networks:
+  lectureforge-network:
+    driver: bridge
