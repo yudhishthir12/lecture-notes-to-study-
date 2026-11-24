@@ -10,6 +10,7 @@ Tests verify:
 """
 
 import io
+import unittest.mock
 import uuid
 from pathlib import Path
 
@@ -249,3 +250,77 @@ async def test_generate_endpoint_requires_gemini_api_key(
         assert "Gemini API key not configured" in data["detail"]
     finally:
         settings.GEMINI_API_KEY = original_key
+
+
+@pytest.mark.asyncio
+async def test_get_study_pack_by_document_id_and_pack_id(
+    client: httpx.AsyncClient, db_session: AsyncSession
+):
+    """Verify GET /api/study-packs/{id} resolves by both study pack ID and document ID."""
+    from app.models.document import StudyPack, StudyPackStatus
+
+    doc_id = uuid.uuid4()
+    sp_id = uuid.uuid4()
+
+    doc = Document(
+        id=doc_id,
+        filename="Algorithms.pdf",
+        file_type="pdf",
+        file_path="/tmp/Algorithms.pdf",
+        file_size=50000,
+        status=DocumentStatus.COMPLETED,
+    )
+    study_pack = StudyPack(
+        id=sp_id,
+        document_id=doc_id,
+        status=StudyPackStatus.COMPLETED,
+        content_json={
+            "metadata": {
+                "topic": "Algorithms",
+                "document_id": str(doc_id),
+                "source_pages": [1],
+                "generated_at": "2026-11-24T00:00:00Z",
+            },
+            "summary": {"overview": "Test overview", "detailed_summary": "Test details"},
+            "concepts": [],
+            "key_terms": [],
+            "formulas": [],
+            "practice_questions": [],
+        },
+        evaluation_json={"passed": True, "overall_score": 4.5},
+    )
+    db_session.add(doc)
+    db_session.add(study_pack)
+    await db_session.commit()
+
+    # 1. Lookup by document ID
+    res_by_doc = await client.get(f"/api/study-packs/{doc_id}")
+    assert res_by_doc.status_code == 200
+    assert res_by_doc.json()["id"] == str(sp_id)
+    assert res_by_doc.json()["document_id"] == str(doc_id)
+
+    # 2. Lookup by study pack ID
+    res_by_sp = await client.get(f"/api/study-packs/{sp_id}")
+    assert res_by_sp.status_code == 200
+    assert res_by_sp.json()["id"] == str(sp_id)
+
+    # 3. Verify GET /api/documents/{id} exposes study_pack_id
+    res_doc = await client.get(f"/api/documents/{doc_id}")
+    assert res_doc.status_code == 200
+    doc_json = res_doc.json()
+    assert doc_json["has_study_pack"] is True
+    assert doc_json["study_pack_id"] == str(sp_id)
+
+    # 4. Verify POST /api/study-packs/{id}/regenerate
+    with unittest.mock.patch("app.workers.tasks.regenerate_section.delay") as mock_delay:
+        regen_res = await client.post(
+            f"/api/study-packs/{sp_id}/regenerate",
+            json={"sections": ["practice_questions"]},
+        )
+        assert regen_res.status_code == 200
+        regen_data = regen_res.json()
+        assert regen_data["study_pack_id"] == str(sp_id)
+        assert "practice_questions" in regen_data["message"]
+        mock_delay.assert_called_once_with(str(sp_id), ["practice_questions"])
+
+

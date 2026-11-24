@@ -49,7 +49,7 @@ class Settings(BaseSettings):
         description="Google Gemini API key. If not set, AI generation endpoints will return 400.",
     )
     GEMINI_MODEL: str = Field(
-        default="gemini-3.5-flash",
+        default="gemini-3.5-flash-lite",
         description="Default Gemini model to use for extraction, summarization, and evaluation",
     )
 

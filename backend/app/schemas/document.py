@@ -37,6 +37,10 @@ class DocumentResponse(DocumentBase):
         default=False,
         description="Indicates whether a study pack exists for this document",
     )
+    study_pack_id: uuid.UUID | None = Field(
+        default=None,
+        description="Associated StudyPack ID if one has been generated",
+    )
 
     @computed_field
     @property
@@ -100,6 +104,10 @@ class DocumentStatusResponse(BaseModel):
         description="Overall estimated percentage completion (0-100%)",
     )
     error_message: str | None = Field(default=None, description="Error details if pipeline failed")
+    study_pack_id: uuid.UUID | None = Field(
+        default=None,
+        description="Associated StudyPack ID if one has been generated",
+    )
     updated_at: datetime = Field(..., description="Status timestamp")
 
     @classmethod
@@ -111,6 +119,7 @@ class DocumentStatusResponse(BaseModel):
         updated_at: datetime,
         current_stage: str | None = None,
         error_message: str | None = None,
+        study_pack_id: uuid.UUID | None = None,
     ) -> "DocumentStatusResponse":
         """Compute estimated completion percentage based on current pipeline status."""
         stage_progress = {
@@ -135,5 +144,6 @@ class DocumentStatusResponse(BaseModel):
             current_stage=stage_desc,
             progress_percentage=progress,
             error_message=error_message,
+            study_pack_id=study_pack_id,
             updated_at=updated_at,
         )

@@ -106,7 +106,7 @@ export default function DocumentDetailPage() {
         } catch (e) {
           // ignore status poll errors
         }
-      }, 2500);
+      }, 1500);
     }
 
     return () => {
@@ -221,7 +221,7 @@ export default function DocumentDetailPage() {
 
         <div className="flex items-center gap-2">
           {document.has_study_pack && (
-            <Link href={`/study-packs/${document.id}`}>
+            <Link href={`/study-packs/${document.study_pack_id || document.id}`}>
               <Button size="sm" className="gap-1.5">
                 <Sparkles className="h-4 w-4" />
                 <span>View Study Pack</span>
@@ -293,7 +293,7 @@ export default function DocumentDetailPage() {
             {/* Primary Action Button */}
             <div className="flex flex-col sm:items-end gap-2">
               {document.has_study_pack ? (
-                <Link href={`/study-packs/${document.id}`}>
+                <Link href={`/study-packs/${document.study_pack_id || document.id}`}>
                   <Button className="gap-2 shadow-sm">
                     <Sparkles className="h-4 w-4" />
                     <span>Open Study Pack</span>
@@ -449,7 +449,7 @@ export default function DocumentDetailPage() {
                   </p>
                 </div>
               </div>
-              <Link href={`/study-packs/${document.id}`}>
+              <Link href={`/study-packs/${document.study_pack_id || document.id}`}>
                 <Button
                   size="sm"
                   variant="success"

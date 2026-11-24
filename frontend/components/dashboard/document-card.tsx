@@ -169,7 +169,7 @@ export function DocumentCard({ document: doc, onDeleted }: DocumentCardProps) {
 
           <div className="flex items-center gap-1">
             {doc.has_study_pack && (
-              <Link href={`/study-packs/${doc.id}`}>
+              <Link href={`/study-packs/${doc.study_pack_id || doc.id}`}>
                 <Button
                   size="sm"
                   variant="secondary"

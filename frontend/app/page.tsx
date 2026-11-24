@@ -209,7 +209,7 @@ export default function DashboardPage() {
                     </div>
 
                     <Link
-                      href={`/study-packs/${doc.id}`}
+                      href={`/study-packs/${doc.study_pack_id || doc.id}`}
                       className="mt-3 block text-base font-bold text-foreground group-hover:text-primary transition-colors line-clamp-1"
                     >
                       {doc.filename.replace(/\.[^/.]+$/, "")}
@@ -226,7 +226,7 @@ export default function DashboardPage() {
                         ? `${doc.page_count} pages analyzed`
                         : "Full lecture notes"}
                     </span>
-                    <Link href={`/study-packs/${doc.id}`}>
+                    <Link href={`/study-packs/${doc.study_pack_id || doc.id}`}>
                       <Button size="sm" className="gap-1.5 h-8 text-xs">
                         <span>Study Now</span>
                         <ArrowRight className="h-3.5 w-3.5" />

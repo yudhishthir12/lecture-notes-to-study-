@@ -136,6 +136,7 @@ export interface Document {
   created_at: string;
   updated_at: string;
   has_study_pack: boolean;
+  study_pack_id?: string | null;
   human_readable_size?: string;
   extracted_text?: string | null;
   chunks_count?: number;
@@ -155,6 +156,7 @@ export interface DocumentStatusResponse {
   status: DocumentStatus;
   current_stage?: string | null;
   progress_percentage: number;
+  study_pack_id?: string | null;
   error_message?: string | null;
   updated_at: string;
 }

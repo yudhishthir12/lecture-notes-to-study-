@@ -186,6 +186,7 @@ async def upload_document(
         created_at=document.created_at,
         updated_at=document.updated_at,
         has_study_pack=False,
+        study_pack_id=None,
     )
 
 
@@ -244,6 +245,7 @@ async def list_documents(
             created_at=d.created_at,
             updated_at=d.updated_at,
             has_study_pack=len(d.study_packs) > 0,
+            study_pack_id=d.study_packs[0].id if d.study_packs else None,
         )
         for d in docs
     ]
@@ -294,6 +296,7 @@ async def get_document(
         created_at=doc.created_at,
         updated_at=doc.updated_at,
         has_study_pack=len(doc.study_packs) > 0,
+        study_pack_id=doc.study_packs[0].id if doc.study_packs else None,
         extracted_text=doc.extracted_text,
         chunks_count=chunks_count,
     )
@@ -312,7 +315,10 @@ async def get_document_status(
     """Retrieve real-time processing status and stage progress."""
     query = (
         select(Document)
-        .options(selectinload(Document.pipeline_runs))
+        .options(
+            selectinload(Document.pipeline_runs),
+            selectinload(Document.study_packs),
+        )
         .where(Document.id == document_id)
     )
     result = await db.execute(query)
@@ -328,6 +334,8 @@ async def get_document_status(
     if doc.pipeline_runs:
         current_stage = doc.pipeline_runs[0].current_stage
 
+    study_pack_id = doc.study_packs[0].id if doc.study_packs else None
+
     return DocumentStatusResponse.from_document(
         doc_id=doc.id,
         filename=doc.filename,
@@ -335,6 +343,7 @@ async def get_document_status(
         updated_at=doc.updated_at,
         current_stage=current_stage,
         error_message=doc.error_message,
+        study_pack_id=study_pack_id,
     )
 
 

@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -36,6 +36,26 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+async def _find_study_pack(
+    identifier: uuid.UUID,
+    db: AsyncSession,
+) -> StudyPack | None:
+    """Find a study pack by its own UUID, or by its associated document UUID."""
+    query = (
+        select(StudyPack)
+        .options(selectinload(StudyPack.document))
+        .where(
+            or_(
+                StudyPack.id == identifier,
+                StudyPack.document_id == identifier,
+            )
+        )
+        .order_by(desc(StudyPack.created_at))
+    )
+    result = await db.execute(query)
+    return result.scalars().first()
+
+
 @router.get(
     "/{study_pack_id}",
     response_model=StudyPackResponse,
@@ -47,9 +67,7 @@ async def get_study_pack(
     db: AsyncSession = Depends(get_db),
 ) -> StudyPackResponse:
     """Fetch complete structured study pack content."""
-    query = select(StudyPack).where(StudyPack.id == study_pack_id)
-    result = await db.execute(query)
-    pack = result.scalar_one_or_none()
+    pack = await _find_study_pack(study_pack_id, db)
 
     if pack is None:
         raise HTTPException(
@@ -110,9 +128,7 @@ async def regenerate_study_pack(
             detail="Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
         )
 
-    query = select(StudyPack).where(StudyPack.id == study_pack_id)
-    result = await db.execute(query)
-    pack = result.scalar_one_or_none()
+    pack = await _find_study_pack(study_pack_id, db)
 
     if pack is None:
         raise HTTPException(
@@ -148,6 +164,14 @@ async def regenerate_study_pack(
         sections=payload.sections,
     )
 
+    # Dispatch Celery background task for section regeneration
+    try:
+        from app.workers.tasks import regenerate_section as celery_regenerate
+
+        celery_regenerate.delay(str(pack.id), payload.sections)
+    except Exception as exc:
+        logger.warning("Could not dispatch celery regenerate task: %s", exc)
+
     return {
         "message": f"Regeneration scheduled for sections: {payload.sections}",
         "study_pack_id": str(pack.id),
@@ -167,9 +191,7 @@ async def get_study_pack_evaluation(
     db: AsyncSession = Depends(get_db),
 ) -> EvaluationResult:
     """Retrieve automated quality evaluation results for a study pack."""
-    query = select(StudyPack).where(StudyPack.id == study_pack_id)
-    result = await db.execute(query)
-    pack = result.scalar_one_or_none()
+    pack = await _find_study_pack(study_pack_id, db)
 
     if pack is None:
         raise HTTPException(
@@ -207,9 +229,7 @@ async def export_study_pack_markdown(
     db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
     """Export study pack as a Markdown file."""
-    query = select(StudyPack).where(StudyPack.id == study_pack_id)
-    result = await db.execute(query)
-    pack = result.scalar_one_or_none()
+    pack = await _find_study_pack(study_pack_id, db)
 
     if pack is None:
         raise HTTPException(
@@ -249,9 +269,7 @@ async def export_study_pack_pdf(
     db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
     """Export study pack as a PDF document."""
-    query = select(StudyPack).where(StudyPack.id == study_pack_id)
-    result = await db.execute(query)
-    pack = result.scalar_one_or_none()
+    pack = await _find_study_pack(study_pack_id, db)
 
     if pack is None:
         raise HTTPException(
@@ -305,9 +323,7 @@ async def export_study_pack_anki(
     db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
     """Export study pack flashcards as an Anki-compatible CSV."""
-    query = select(StudyPack).where(StudyPack.id == study_pack_id)
-    result = await db.execute(query)
-    pack = result.scalar_one_or_none()
+    pack = await _find_study_pack(study_pack_id, db)
 
     if pack is None:
         raise HTTPException(
