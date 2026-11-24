@@ -5,13 +5,18 @@ const nextConfig = {
   images: {
     domains: ['localhost'],
   },
-  // Proxy API requests to backend in local dev if desired
+  // Proxy API requests to backend if internal URL or environment variable is supplied
   async rewrites() {
-    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://localhost:8000';
+    const backendUrl =
+      process.env.BACKEND_INTERNAL_URL ||
+      process.env.BACKEND_URL ||
+      process.env.NEXT_PUBLIC_API_URL;
+    if (!backendUrl) return [];
+    const cleanUrl = backendUrl.replace(/\/+$/, "");
     return [
       {
         source: '/api/:path*',
-        destination: `${backendUrl}/api/:path*`,
+        destination: `${cleanUrl}/api/:path*`,
       },
     ];
   },
