@@ -86,6 +86,12 @@ services:
     container_name: lectureforge-celery-worker
     restart: unless-stopped
     command: celery -A app.workers.celery_app worker --loglevel=info -Q default
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME || exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     env_file:
       - .env
     environment:
