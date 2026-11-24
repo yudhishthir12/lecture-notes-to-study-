@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from abc import ABC, abstractmethod
 from typing import Any, Type, Union
 
@@ -195,9 +196,24 @@ class GeminiProvider(LLMService):
                 total_tok,
             )
 
+    # Process-wide cap on concurrent in-flight Gemini requests.
+    _REQUEST_SEMAPHORE = threading.Semaphore(max(1, settings.GEMINI_MAX_CONCURRENT_REQUESTS))
+
+    def _model_candidates(self) -> list[str]:
+        """Return the ordered models to try: primary first, then the fallback."""
+        models = [self.model_name]
+        fallback = (settings.GEMINI_FALLBACK_MODEL or "").strip()
+        if fallback and fallback != self.model_name:
+            models.append(fallback)
+        return models
+
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=30),
+        stop=stop_after_attempt(max(1, settings.GEMINI_MAX_RETRIES)),
+        wait=wait_exponential(
+            multiplier=max(0.0, settings.GEMINI_RETRY_BASE_DELAY),
+            min=max(0.0, settings.GEMINI_RETRY_BASE_DELAY),
+            max=30,
+        ),
         retry=retry_if_exception_type(
             (
                 errors.ServerError,
@@ -213,15 +229,17 @@ class GeminiProvider(LLMService):
         before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True,
     )
-    def _execute_generate(
+    def _generate_with_model(
         self,
+        model_name: str,
         prompt: str,
         system_prompt: str,
         response_schema: Type[BaseModel] | None = None,
     ) -> Any:
-        """Execute model content generation with exponential backoff retry.
+        """Call Gemini for a single model with exponential-backoff retry.
 
-        Retries on rate limits (429), timeouts, server errors, and malformed responses.
+        Retries on rate limits (429), timeouts, server errors, and malformed
+        responses. Concurrency is bounded by GEMINI_MAX_CONCURRENT_REQUESTS.
         """
         client = self._get_client()
 
@@ -231,31 +249,66 @@ class GeminiProvider(LLMService):
             response_schema=None,
         )
 
-        try:
-            response = client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=config,
-            )
-            return response
-        except errors.ClientError as exc:
-            # Check for HTTP 429 / RESOURCE_EXHAUSTED
-            exc_str = str(exc)
-            if "429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str:
-                logger.warning("Gemini rate limit encountered: %s", exc)
-                raise LLMRateLimitError(f"Gemini API rate limit exceeded: {exc}") from exc
-            raise LLMServiceError(f"Gemini client error: {exc}") from exc
-        except errors.ServerError as exc:
-            logger.warning("Gemini server error: %s", exc)
-            raise
-        except (httpx.TimeoutException, TimeoutError) as exc:
-            logger.warning("Gemini request timed out: %s", exc)
-            raise LLMTimeoutError(
-                f"Gemini request timed out after {self.timeout_seconds}s"
-            ) from exc
-        except Exception as exc:
-            logger.error("Unexpected error during Gemini API call: %s", exc)
-            raise LLMServiceError(f"Gemini call failed: {exc}") from exc
+        with self._REQUEST_SEMAPHORE:
+            try:
+                return client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=config,
+                )
+            except errors.ClientError as exc:
+                # Check for HTTP 429 / RESOURCE_EXHAUSTED
+                exc_str = str(exc)
+                if "429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str:
+                    logger.warning("Gemini rate limit encountered: %s", exc)
+                    raise LLMRateLimitError(f"Gemini API rate limit exceeded: {exc}") from exc
+                raise LLMServiceError(f"Gemini client error: {exc}") from exc
+            except errors.ServerError as exc:
+                logger.warning("Gemini server error: %s", exc)
+                raise
+            except (httpx.TimeoutException, TimeoutError) as exc:
+                logger.warning("Gemini request timed out: %s", exc)
+                raise LLMTimeoutError(
+                    f"Gemini request timed out after {self.timeout_seconds}s"
+                ) from exc
+            except Exception as exc:
+                logger.error("Unexpected error during Gemini API call: %s", exc)
+                raise LLMServiceError(f"Gemini call failed: {exc}") from exc
+
+    def _execute_generate(
+        self,
+        prompt: str,
+        system_prompt: str,
+        response_schema: Type[BaseModel] | None = None,
+    ) -> Any:
+        """Generate with the primary model, then the fallback model on failure.
+
+        Each model is attempted GEMINI_MAX_RETRIES times (with exponential
+        backoff) before moving on to the next candidate.
+        """
+        candidates = self._model_candidates()
+        last_error: Exception | None = None
+
+        for index, model_name in enumerate(candidates):
+            try:
+                return self._generate_with_model(
+                    model_name, prompt, system_prompt, response_schema
+                )
+            except LLMConfigurationError:
+                raise
+            except LLMServiceError as exc:
+                last_error = exc
+                if index < len(candidates) - 1:
+                    logger.warning(
+                        "Gemini model %s failed (%s); falling back to %s",
+                        model_name,
+                        exc,
+                        candidates[index + 1],
+                    )
+
+        if last_error is not None:
+            raise last_error
+        raise LLMServiceError("Gemini generation failed for all configured models.")
 
     def generate(
         self,

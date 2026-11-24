@@ -52,6 +52,22 @@ class Settings(BaseSettings):
         default="gemini-2.0-flash",
         description="Default Gemini model to use for extraction, summarization, and evaluation",
     )
+    GEMINI_FALLBACK_MODEL: str | None = Field(
+        default=None,
+        description="Fallback Gemini model used when the primary model fails after all retries.",
+    )
+    GEMINI_MAX_RETRIES: int = Field(
+        default=3,
+        description="Maximum generation attempts per model before falling back / failing.",
+    )
+    GEMINI_RETRY_BASE_DELAY: float = Field(
+        default=2.0,
+        description="Base delay (seconds) for exponential backoff between Gemini retries.",
+    )
+    GEMINI_MAX_CONCURRENT_REQUESTS: int = Field(
+        default=2,
+        description="Maximum number of concurrent in-flight Gemini requests per process.",
+    )
 
     # File Storage
     MAX_UPLOAD_SIZE_MB: int = Field(
