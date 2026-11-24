@@ -13,15 +13,26 @@ import {
   RegenerateResponse,
 } from "@/types";
 
+// Safe ambient declaration for process to satisfy TypeScript language servers in browser context
+declare const process: { env?: Record<string, string | undefined> } | undefined;
+
 /**
  * Resolves API base URL strictly from environment configuration (NEXT_PUBLIC_API_URL).
+ * Protected with try/catch to safely handle browser environments where `process` is not defined.
  * If not explicitly configured, defaults to relative '/api' route for reverse-proxy / same-origin setups.
  * Never hardcodes any host or port in code.
  */
 const getBaseUrl = (): string => {
-  const envUrl =
-    process.env.NEXT_PUBLIC_API_URL ||
-    (typeof window === "undefined" ? process.env.BACKEND_URL : undefined);
+  let envUrl: string | undefined;
+
+  try {
+    if (typeof process !== "undefined" && process?.env) {
+      envUrl = process.env.NEXT_PUBLIC_API_URL;
+    }
+  } catch {
+    // Safe fallback if `process` is undefined in browser global scope
+    envUrl = undefined;
+  }
 
   if (envUrl) {
     const clean = envUrl.replace(/\/+$/, "");
