@@ -5,8 +5,8 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Next.js](https://img.shields.io/badge/Next.js-14.2-black.svg?logo=next.js&logoColor=white)](https://nextjs.org)
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB.svg?logo=python&logoColor=white)](https://python.org)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg?logo=postgresql&logoColor=white)](https://www.postgresql.org)
-[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com)
+[![MySQL](https://img.shields.io/badge/MySQL-8-4479A1.svg?logo=mysql&logoColor=white)](https://www.mysql.com)
+[![Docker](https://img.shields.io/badge/Docker-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
@@ -17,9 +17,9 @@
 - [Architecture](#architecture)
 - [Key Features](#key-features)
 - [Tech Stack](#tech-stack)
-- [Quick Start with Docker](#quick-start-with-docker)
-- [Deploy to Render (Blueprint)](#deploy-to-render-blueprint)
-- [Local Development Setup (without Docker)](#local-development-setup-without-docker)
+- [Deployment](#deployment)
+- [Deploying on Railway](#deploying-on-railway)
+- [Local Development Setup](#local-development-setup)
 - [Environment Variables](#environment-variables)
 - [API Endpoints Reference](#api-endpoints-reference)
 - [Project Directory Structure](#project-directory-structure)
@@ -61,7 +61,7 @@ Every generated study pack undergoes strict deterministic static analysis and mu
              | Upload / Query            | Retrieve / Export               | Connection Pool
              v                           v                                 v
 +--------------------+         +--------------------+          +-----------------------+
-| File System Store  |         | WeasyPrint Engine  |          | PostgreSQL 16 DB      |
+| File System Store  |         | WeasyPrint Engine  |          | MySQL 8 DB            |
 | /app/uploads       |         | /app/exports       |          | - documents           |
 | /app/exports       |         +--------------------+          | - study_packs         |
 +--------------------+                                         | - pipeline_runs       |
@@ -137,131 +137,135 @@ Every generated study pack undergoes strict deterministic static analysis and mu
 | :--- | :--- | :--- |
 | **Backend API** | [FastAPI](https://fastapi.tiangolo.com/) | High-performance Python 3.11 asynchronous web framework |
 | **Async Tasks** | [Celery](https://docs.celeryq.dev/) + [Redis](https://redis.io/) | Distributed background task queue and message broker |
-| **Database** | [PostgreSQL 16](https://www.postgresql.org/) | Relational database with UUID keys and JSON storage |
+| **Database** | [MySQL 8](https://www.mysql.com/) | Relational database with UUID keys and JSON storage |
 | **ORM & Migrations** | [SQLAlchemy 2.0](https://www.sqlalchemy.org/) + [Alembic](https://alembic.sqlalchemy.org/) | Modern async database session management |
 | **AI / LLM** | [Google GenAI SDK](https://github.com/google-gemini/generative-ai-python) | Gemini 2.0 Flash with structured Pydantic response schemas |
 | **Document Processing**| [PyMuPDF](https://pymupdf.readthedocs.io/), [python-pptx](https://python-pptx.readthedocs.io/) | Native layout parsing, table extraction, and shape processing |
 | **PDF Generation** | [WeasyPrint](https://weasyprint.org/) | HTML5/CSS3 to PDF publishing engine |
 | **Frontend** | [Next.js 14](https://nextjs.org/) (App Router) | Standalone Node.js 20 production runner |
 | **UI Components** | [TailwindCSS](https://tailwindcss.com/) + [Radix UI](https://www.radix-ui.com/) | Accessible, responsive dark/light mode student dashboard |
-| **Containerization** | [Docker](https://www.docker.com/) & [Docker Compose](https://docs.docker.com/compose/) | Production multi-stage Dockerfiles and container orchestration |
+| **Containerization** | [Docker](https://www.docker.com/) | Per-service multi-stage Dockerfiles (backend and frontend deploy independently) |
 
 ---
 
-## 🚀 Quick Start with Docker
+## 🚀 Deployment
 
-The fastest way to run LectureForge AI is using Docker Compose.
+The backend and frontend are **two independent services**. Each has its own
+`.env` file, its own build, and its own deploy target — deploy them on the same
+platform or on entirely different ones; they only communicate over HTTP.
 
-### 1. Clone & Configure Environment
+| Service | Folder | Env file | External dependencies |
+| :--- | :--- | :--- | :--- |
+| Backend API + Celery worker | `backend/` | `backend/.env` | MySQL, Google Gemini (Redis bundled in the image) |
+| Frontend dashboard | `frontend/` | `frontend/.env` | The backend's public URL |
 
-```bash
-cd lectureforge-ai
-cp .env.example .env
-```
+The backend is responsible for **its own MySQL** — provision it with whatever
+managed database your host provides (Railway, Neon, PlanetScale, ...).
+**Redis is bundled into the backend image**, so no separate broker is needed. The
+frontend needs nothing beyond the backend's public URL.
 
-Edit `.env` and provide your Google Gemini API key:
-```ini
-GEMINI_API_KEY=your_actual_gemini_api_key_here
-```
-
-### 2. Build and Start All Containers
-
-```bash
-docker compose up --build -d
-```
-
-Docker Compose launches 5 interconnected services:
-- **`postgres`**: Database on `localhost:5432`
-- **`redis`**: Task broker on `localhost:6379`
-- **`backend`**: FastAPI REST API on `http://localhost:8000` (Interactive docs: `http://localhost:8000/docs`)
-- **`celery-worker`**: Background worker for long-running AI extractions
-- **`frontend`**: Next.js student dashboard on `http://localhost:3000`
-
-### 3. Verify Health
-
-```bash
-# Check container statuses
-docker compose ps
-
-# View backend logs
-docker compose logs -f backend
-
-# Probe backend health check
-curl http://localhost:8000/health
-```
-
-### 4. Stop Services
-
-```bash
-docker compose down
-```
-
-To wipe persistent database and upload volumes:
-```bash
-docker compose down -v
-```
-
-> **Note:** Docker Compose automatically provisions the `postgres` and `redis`
-> images on the internal `lectureforge-network` bridge. The backend connects to
-> them by service name (`postgres:5432`, `redis:6379`) — no external database is
-> required. All of this is driven entirely by `.env`, so you never edit hosts or
-> credentials inside the compose file.
+> **Run the API, the Celery worker, and Redis as a single service.** The worker
+> reads uploaded files straight off disk (`UPLOAD_DIR`), so the processes must
+> share the same filesystem, and Redis can be started alongside them. One
+> container/command, e.g.:
+>
+> ```sh
+> redis-server --save "" --appendonly no --daemonize no &
+> celery -A app.workers.celery_app worker --loglevel=info -Q default --concurrency=2 &
+> exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 2
+> ```
 
 ---
 
-## ☁️ Deploy to Render (Blueprint)
+## ☁️ Deploying Backend and Frontend Separately
 
-Render cannot run `docker compose`, so this repo ships a **[`render.yaml`](render.yaml)**
-Blueprint that provisions the full stack (managed Postgres + Redis + services) on
-Render's private network with zero manual wiring.
+### Backend (`backend/`)
 
-### What gets created
+1. Provision a **MySQL 8** and a **Redis** instance on your host of choice.
+2. Deploy the `backend/` folder as a Docker service (or a native Python 3.11
+   app — `backend/Dockerfile` and `backend/entrypoint.sh` are the reference).
+3. Set these environment variables (see `backend/.env.example` for the full list):
+   - `DATABASE_URL` — the managed MySQL connection string (plain `mysql://`
+     is normalized to `mysql+aiomysql` automatically)
+   - `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`
+   - `GEMINI_API_KEY`
+   - `CORS_ORIGINS` — your deployed frontend URL
+   - `SECRET_KEY` — a long random string
+   - `RUN_MIGRATIONS=true` so `alembic upgrade head` runs on boot
+   - `UPLOAD_DIR` / `EXPORT_DIR` — point these at a **persistent disk/volume**
+     if you want uploads and exports to survive restarts
+4. Start command: the image's default (`backend/start.sh`) already launches the
+   Celery worker in the background and the API in the foreground on `$PORT`.
+5. Health check path: `/health`.
 
-| Render resource | Type | Purpose |
+### Frontend (`frontend/`)
+
+1. Deploy the `frontend/` folder (Docker via `frontend/Dockerfile`, or a native
+   Node build with `npm ci && npm run build && npm start`).
+2. Set `NEXT_PUBLIC_API_URL` to the backend's public URL **at build time** — it
+   is baked into the client bundle, so a rebuild is required if it changes.
+3. Set `BACKEND_URL` to the same backend URL (used by the server-side proxy).
+4. Health check path: `/`.
+
+No shared network, no shared orchestration file — each side is fully
+self-contained.
+
+---
+
+## 🚂 Deploying on Railway
+
+Two Railway services (Redis is bundled into the backend image):
+
+| Railway service | Built from | Notes |
 | :--- | :--- | :--- |
-| `lectureforge-db` | PostgreSQL | Managed database (`DATABASE_URL` injected automatically) |
-| `lectureforge-redis` | Key Value (Redis) | Celery broker + result backend |
-| `lectureforge-api` | Web (Docker) | FastAPI **and** Celery worker, with a persistent disk |
-| `lectureforge-frontend` | Web (Docker) | Next.js dashboard |
+| **backend** | repo, root dir `backend/` | Dockerfile; runs Redis + Celery worker + API |
+| **frontend** | repo, root dir `frontend/` | Dockerfile |
 
-### Deploy steps
+Your **MySQL stays external** — Railway reaches it over the public internet, and
+**Redis runs inside the backend container**, so no Railway Redis service is needed.
 
-1. Push this repo to GitHub/GitLab.
-2. In the Render Dashboard: **New → Blueprint**, select the repo. Render reads `render.yaml`.
-3. When prompted, supply the secret **`GEMINI_API_KEY`** (and adjust plans if you like).
-4. Click **Apply**. Render builds both Docker images and wires the services together.
+### Steps
 
-### Why the API and worker share one service
+1. New project → **Deploy from GitHub repo**, set the backend service **Root
+   Directory** to `backend` (Railway builds `backend/Dockerfile`).
+2. Add a **volume** to the backend service mounted at `/app/data`, and set its
+   healthcheck path to `/health`.
+3. Paste `backend/.env.railway` into the backend service's **Variables → Raw
+   Editor**, filling in your MySQL DSN, Gemini key, and secret, and renaming the
+   `${{...}}` references to match your service names.
+4. Create a second service from the same repo with **Root Directory** `frontend`,
+   and paste `frontend/.env.railway` into its variables.
+5. If the backend's public URL changes, redeploy the frontend (the API URL is
+   baked into the bundle at build time).
 
-The Celery worker reads uploaded files **directly from disk** (`UPLOAD_DIR`). On
-Render, every service has its own filesystem, so a separate worker would never see
-the API's uploads. The Blueprint therefore runs Uvicorn and the Celery worker in a
-**single container** backed by one persistent disk (`/app/data`), mirroring the
-shared `uploads_data` / `exports_data` volumes used by Docker Compose.
+### Why the API and Celery worker are one service
 
-### Render gotchas to know
+Celery reads uploaded files from disk (`UPLOAD_DIR`). Railway gives every service
+its own filesystem, and volumes cannot be shared between services, so the worker
+must live in the same container as the API. `backend/start.sh` starts Redis, then
+the worker in the background, and Uvicorn in the foreground on `$PORT`. A separate
+worker service would never see the API's uploads.
 
-- **Persistent disks require a paid instance** (`plan: starter`). On the Free plan,
-  uploads are wiped on every deploy/restart.
-- **`NEXT_PUBLIC_API_URL` is baked in at build time.** Render forwards service env
-  vars as Docker build args, so the Blueprint points the frontend at the backend's
-  `RENDER_EXTERNAL_URL`. If you rename services, update those references.
-- **Migrations run automatically** on container start via `backend/entrypoint.sh`
-  (`RUN_MIGRATIONS=true`). Workers should set `RUN_MIGRATIONS=false` (Compose already does).
+### Notes / gotchas
 
-> Prefer a self-managed server (VPS/EC2)? Just use the Docker Compose path above —
-> it provisions its own Postgres and Redis on the Docker network.
+- **Volumes require a paid plan.** Without one, uploads are wiped on redeploy.
+- Railway injects `PORT`; `start.sh` and the Docker healthcheck honor it.
+- `RUN_MIGRATIONS=true` runs `alembic upgrade head` on each boot (idempotent).
+- The in-container Redis is in-memory only, so tasks still queued are lost if the
+  container restarts (fine for a Celery broker).
+- An external MySQL that only accepts TLS needs `?ssl=true` (or your provider's
+  `ssl_ca` params) appended to the DSN.
 
 ---
 
-## 💻 Local Development Setup (without Docker)
+## 💻 Local Development Setup
 
 If you prefer running services directly on your host machine:
 
 ### Prerequisites
 - Python 3.11+
 - Node.js 20+ and npm
-- PostgreSQL 15+ running locally
+- MySQL 8+ running locally
 - Redis 7+ running locally
 - Native system dependencies for WeasyPrint:
   - **Debian / Ubuntu**: `sudo apt install libpango-1.0-0 libharfbuzz0b libpangoft2-1.0-0 libffi-dev shared-mime-info`
@@ -313,25 +317,22 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## 🔐 Environment Variables
 
+### Backend (`backend/.env`)
+
 | Variable | Description | Default | Required? |
 | :--- | :--- | :--- | :---: |
 | `ENVIRONMENT` | Deployment environment (`development`/`staging`/`production`) | `development` | No |
 | `GEMINI_API_KEY` | Google Gemini API Key for synthesis and evaluation | `None` | **Yes** (for AI generation) |
 | `GEMINI_MODEL` | Gemini LLM model identifier | `gemini-2.0-flash` | No |
-| `DATABASE_URL` | Async PostgreSQL connection string (plain `postgres://` from Render/Heroku is auto-normalized) | `postgresql+asyncpg://lectureforge:lectureforge@localhost:5432/lectureforge` | Yes |
-| `DATABASE_URL_SYNC` | Synchronous PostgreSQL connection string (derived from `DATABASE_URL` if omitted) | `postgresql://lectureforge:lectureforge@localhost:5432/lectureforge` | No |
-| `POSTGRES_USER` | PostgreSQL superuser | `lectureforge` | Yes (Compose) |
-| `POSTGRES_PASSWORD` | PostgreSQL password | `lectureforge` | Yes (Compose) |
-| `POSTGRES_DB` | PostgreSQL database name | `lectureforge` | Yes (Compose) |
+| `DATABASE_URL` | Async MySQL connection string (plain `mysql://` from managed providers is auto-normalized to `mysql+aiomysql`) | `mysql+aiomysql://lectureforge:lectureforge@localhost:3306/lectureforge` | Yes |
+| `DATABASE_URL_SYNC` | Synchronous MySQL connection string (derived from `DATABASE_URL` if omitted) | `mysql+pymysql://lectureforge:lectureforge@localhost:3306/lectureforge` | No |
 | `REDIS_URL` | Redis instance URL | `redis://localhost:6379/0` | Yes |
 | `CELERY_BROKER_URL` | Message broker for asynchronous tasks | `redis://localhost:6379/0` | Yes |
 | `CELERY_RESULT_BACKEND` | Task result store | `redis://localhost:6379/1` | Yes |
 | `CELERY_CONCURRENCY` | Celery worker concurrency (prefork processes) | `2` | No |
 | `RUN_MIGRATIONS` | Run `alembic upgrade head` on container start | `true` | No |
-| `NEXT_PUBLIC_API_URL` | Public-facing backend URL for frontend requests (baked at build time) | `/api` (relative) | Yes |
-| `BACKEND_URL` | Internal backend URL for the Next.js server-side proxy | `http://backend:8000` | No |
-| `FRONTEND_URL` | Public frontend URL (used for links/CORS) | `http://localhost:3000` | No |
-| `NEXT_PUBLIC_IMAGE_DOMAINS` | Comma-separated hostnames allowed by `next/image` | `localhost` | No |
+| `CORS_ORIGINS` | Comma-separated (or JSON array) allowed origins for CORS — set to your deployed frontend URL | `http://localhost:3000` | No |
+| `SECRET_KEY` | Secret for security operations/token signing (**change in production**) | insecure dev default | Yes (prod) |
 | `MAX_UPLOAD_SIZE_MB` | Maximum allowed document upload file size | `50` | No |
 | `UPLOAD_DIR` | Filesystem storage path for uploaded documents | `uploads` | No |
 | `EXPORT_DIR` | Filesystem storage path for exported files | `exports` | No |
@@ -339,10 +340,17 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 | `MAX_RETRY_ATTEMPTS` | Automated self-correction loop limit | `2` | No |
 | `CHUNK_SIZE` | Target character size for semantic text chunking | `2000` | No |
 | `CHUNK_OVERLAP` | Character overlap between consecutive chunks | `200` | No |
-| `CORS_ORIGINS` | Comma-separated (or JSON array) allowed origins for CORS | `http://localhost:3000,http://frontend:3000` | No |
-| `SECRET_KEY` | Secret for security operations/token signing (**change in production**) | insecure dev default | Yes (prod) |
 | `LOG_LEVEL` | Application logging level | `INFO` | No |
 | `LOG_FORMAT` | `console` (dev) or `json` (production log aggregation) | `console` | No |
+
+### Frontend (`frontend/.env`)
+
+| Variable | Description | Default | Required? |
+| :--- | :--- | :--- | :---: |
+| `NEXT_PUBLIC_API_URL` | Public-facing backend URL for frontend requests (**baked at build time**) | `http://localhost:8000` | Yes |
+| `BACKEND_URL` | Backend URL used by the Next.js server-side proxy (rewrites) | `http://localhost:8000` | No |
+| `NEXT_PUBLIC_IMAGE_DOMAINS` | Comma-separated hostnames allowed by `next/image` | `localhost` | No |
+| `NEXT_OUTPUT_STANDALONE` | Emit the self-contained standalone server output | `true` | No |
 
 ---
 
@@ -382,15 +390,15 @@ Interactive OpenAPI documentation is live at `/docs` (Swagger UI) and `/redoc` (
 
 ```
 lectureforge-ai/
-├── docker-compose.yml              # Multi-container orchestration (5 services)
-├── render.yaml                     # Render Blueprint (managed Postgres + Redis + services)
-├── .env.example                    # Template environment variables
 ├── README.md                       # Comprehensive system documentation
 │
 ├── backend/
+│   ├── .env.example                # Backend environment template
+│   ├── .env.railway                # Railway environment (paste into Railway)
 │   ├── Dockerfile                  # Production Debian-slim container with WeasyPrint deps
 │   ├── .dockerignore               # Build-context exclusions (secrets, caches, tests)
 │   ├── entrypoint.sh               # Applies migrations, then launches the process
+│   ├── start.sh                    # Launches Redis + Celery worker + Uvicorn in one container
 │   ├── pytest.ini                  # Pytest configuration (auto-asyncio, filters)
 │   ├── requirements.txt            # Locked backend dependencies
 │   ├── alembic.ini                 # Database migration configuration
@@ -442,6 +450,8 @@ lectureforge-ai/
 │       └── test_api.py             # Integration tests for FastAPI endpoints
 │
 └── frontend/
+    ├── .env.example                # Frontend environment template
+    ├── .env.railway                # Railway environment (paste into Railway)
     ├── Dockerfile                  # Multi-stage Next.js standalone runner
     ├── .dockerignore               # Build-context exclusions (node_modules, .next, secrets)
     ├── public/                     # Static assets served by Next.js
@@ -538,10 +548,7 @@ The generation pipeline can be fine-tuned via `.env` settings:
 
 ### 1. `Gemini API key not configured` (HTTP 400)
 - **Cause**: Generation endpoint was triggered without a configured API key.
-- **Fix**: Add your API key to `.env` (`GEMINI_API_KEY=AIzaSy...`) and restart containers:
-  ```bash
-  docker compose up -d backend celery-worker
-  ```
+- **Fix**: Add your API key to `backend/.env` (`GEMINI_API_KEY=AIzaSy...`) and restart the backend service.
 
 ### 2. WeasyPrint Native Library Missing
 - **Symptoms**: PDF export returns an error or creates an `.html` fallback file instead of a `.pdf`.
@@ -554,13 +561,10 @@ The generation pipeline can be fine-tuned via `.env` settings:
 
 ### 4. Celery Worker Disconnection
 - **Symptoms**: Document status remains stuck on `uploaded` or `parsing`.
-- **Fix**: Ensure Redis is running and reachable by inspecting worker logs:
-  ```bash
-  docker compose logs -f celery-worker
-  ```
+- **Fix**: Ensure Redis is running and reachable, and inspect the Celery worker logs (both run inside the backend service container).
 
 ### 5. Frontend build fails on `next/font` / Google Fonts
-- **Symptoms**: `Failed to fetch 'Inter' from Google Fonts` during `docker compose build` or on the CI runner.
+- **Symptoms**: `Failed to fetch 'Inter' from Google Fonts` during `docker build` or on the CI runner.
 - **Cause**: `app/layout.tsx` loads Inter via `next/font/google`, which downloads the font at **build time**. A build environment without outbound internet access to `fonts.googleapis.com` will fail.
 - **Fix**: Render and most CI runners have egress, so builds normally succeed. For offline/hermetic builds, either allow access to `fonts.googleapis.com` or self-host the font with `next/font/local`.
 

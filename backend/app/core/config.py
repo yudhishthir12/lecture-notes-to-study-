@@ -21,12 +21,12 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://lectureforge:lectureforge@localhost:5432/lectureforge",
-        description="Async PostgreSQL connection string using asyncpg driver",
+        default="mysql+aiomysql://lectureforge:lectureforge@localhost:3306/lectureforge",
+        description="Async MySQL connection string using the aiomysql driver",
     )
     DATABASE_URL_SYNC: str | None = Field(
         default=None,
-        description="Synchronous PostgreSQL connection string. If unset, it is derived from DATABASE_URL.",
+        description="Synchronous MySQL connection string. If unset, it is derived from DATABASE_URL.",
     )
 
     # Redis & Celery
@@ -112,34 +112,31 @@ class Settings(BaseSettings):
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
     def normalize_async_database_url(cls, value: Any) -> Any:
-        """Normalize provider connection strings into an asyncpg DSN.
+        """Normalize provider connection strings into an aiomysql DSN.
 
-        Accepts plain ``postgres://`` / ``postgresql://`` strings (as emitted by
-        Render, Heroku, Railway, etc.) and rewrites them to the ``postgresql+asyncpg``
-        scheme the async engine requires. ``sslmode`` is translated to the ``ssl``
-        connect arg that asyncpg understands.
+        Accepts plain ``mysql://`` strings (as emitted by many managed MySQL
+        providers) and rewrites them to the ``mysql+aiomysql`` scheme the async
+        engine requires.
         """
         if not isinstance(value, str) or not value.strip():
             return value
         url = value.strip()
-        if url.startswith("postgres://"):
-            url = "postgresql://" + url[len("postgres://") :]
-        if url.startswith("postgresql://"):
-            url = "postgresql+asyncpg://" + url[len("postgresql://") :]
-        return url.replace("sslmode=", "ssl=")
+        if url.startswith("mysql://"):
+            url = "mysql+aiomysql://" + url[len("mysql://") :]
+        return url
 
     @field_validator("DATABASE_URL_SYNC", mode="before")
     @classmethod
     def normalize_sync_database_url(cls, value: Any) -> Any:
-        """Normalize a provider connection string into a sync (psycopg2) DSN."""
+        """Normalize a provider connection string into a sync (PyMySQL) DSN."""
         if not isinstance(value, str) or not value.strip():
             return value
         url = value.strip()
-        if url.startswith("postgres://"):
-            url = "postgresql://" + url[len("postgres://") :]
-        url = url.replace("postgresql+asyncpg://", "postgresql://")
+        if url.startswith("mysql://"):
+            url = "mysql+pymysql://" + url[len("mysql://") :]
+        url = url.replace("mysql+aiomysql://", "mysql+pymysql://")
         url = url.replace("sqlite+aiosqlite://", "sqlite://")
-        return url.replace("ssl=require", "sslmode=require")
+        return url
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
@@ -187,7 +184,7 @@ class Settings(BaseSettings):
         return export_path
 
     model_config = SettingsConfigDict(
-        env_file=(".env", "../.env"),
+        env_file=(".env",),
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",

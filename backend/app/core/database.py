@@ -1,4 +1,4 @@
-"""Async SQLAlchemy database configuration using asyncpg.
+"""Async SQLAlchemy database configuration using aiomysql.
 
 Provides AsyncSession factory, engine, DeclarativeBase, and FastAPI get_db dependency.
 """
@@ -30,6 +30,7 @@ engine = create_async_engine(
     echo=False,
     future=True,
     pool_pre_ping=True,
+    pool_recycle=3600,
     pool_size=10,
     max_overflow=20,
 )
@@ -76,12 +77,10 @@ def get_sync_engine():
     global _sync_engine
     if _sync_engine is None:
         sync_url = settings.DATABASE_URL_SYNC
-        if not sync_url or "asyncpg" in sync_url:
-            sync_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+        if not sync_url or "aiomysql" in sync_url:
+            sync_url = settings.DATABASE_URL.replace("mysql+aiomysql://", "mysql+pymysql://")
         if "sqlite+aiosqlite:" in sync_url:
             sync_url = sync_url.replace("sqlite+aiosqlite:", "sqlite:")
-        # psycopg2 expects `sslmode`, asyncpg uses `ssl`
-        sync_url = sync_url.replace("ssl=require", "sslmode=require")
 
         _sync_engine = create_engine(
             sync_url,

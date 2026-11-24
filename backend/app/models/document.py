@@ -1,7 +1,7 @@
 """SQLAlchemy models for documents, generated study packs, and pipeline runs.
 
-Implements database schema with PostgreSQL UUID primary keys, foreign key constraints,
-cascading deletes, composite indexes, and structured JSON storage.
+Implements database schema with portable UUID primary keys (CHAR(32) on MySQL),
+foreign key constraints, cascading deletes, composite indexes, and structured JSON storage.
 """
 
 import enum
