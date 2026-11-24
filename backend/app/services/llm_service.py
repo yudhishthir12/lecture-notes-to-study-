@@ -59,6 +59,12 @@ class LLMMalformedResponseError(LLMServiceError):
     pass
 
 
+class LLMServerError(LLMServiceError):
+    """Raised when the Gemini API returns a transient server error (e.g. HTTP 503)."""
+
+    pass
+
+
 class LLMService(ABC):
     """Abstract dependency-injection interface for LLM operations."""
 
@@ -224,6 +230,7 @@ class GeminiProvider(LLMService):
                 LLMRateLimitError,
                 LLMTimeoutError,
                 LLMMalformedResponseError,
+                LLMServerError,
             )
         ),
         before_sleep=before_sleep_log(logger, logging.WARNING),
@@ -265,7 +272,7 @@ class GeminiProvider(LLMService):
                 raise LLMServiceError(f"Gemini client error: {exc}") from exc
             except errors.ServerError as exc:
                 logger.warning("Gemini server error: %s", exc)
-                raise
+                raise LLMServerError(f"Gemini server error: {exc}") from exc
             except (httpx.TimeoutException, TimeoutError) as exc:
                 logger.warning("Gemini request timed out: %s", exc)
                 raise LLMTimeoutError(
@@ -296,7 +303,7 @@ class GeminiProvider(LLMService):
                 )
             except LLMConfigurationError:
                 raise
-            except LLMServiceError as exc:
+            except (LLMServiceError, errors.APIError) as exc:
                 last_error = exc
                 if index < len(candidates) - 1:
                     logger.warning(
