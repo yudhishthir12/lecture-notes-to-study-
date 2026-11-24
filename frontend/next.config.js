@@ -1,9 +1,14 @@
 /** @type {import('next').NextConfig} */
+const allowedImageDomains = (process.env.NEXT_PUBLIC_IMAGE_DOMAINS || 'localhost')
+  .split(',')
+  .map((domain) => domain.trim())
+  .filter(Boolean);
+
 const nextConfig = {
   output: process.env.NEXT_OUTPUT_STANDALONE === 'true' ? 'standalone' : undefined,
   reactStrictMode: true,
   images: {
-    domains: ['localhost'],
+    domains: allowedImageDomains,
   },
   // Proxy API requests to backend if internal URL or environment variable is supplied
   async rewrites() {

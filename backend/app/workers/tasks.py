@@ -52,6 +52,8 @@ def get_sync_engine():
             sync_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
         if "sqlite+aiosqlite:" in sync_url:
             sync_url = sync_url.replace("sqlite+aiosqlite:", "sqlite:")
+        # psycopg2 expects `sslmode`, asyncpg uses `ssl`
+        sync_url = sync_url.replace("ssl=require", "sslmode=require")
 
         _sync_engine = create_engine(
             sync_url,

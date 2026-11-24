@@ -1,10 +1,33 @@
+# =============================================================================
+# LectureForge AI - Git ignore rules
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Environment files & secrets (never commit real credentials)
+# -----------------------------------------------------------------------------
+.env
+.env.*
+.env.local
+!.env.example
+!*.env.example
+
+# -----------------------------------------------------------------------------
+# Version control internals (git manages these; ignore defensively)
+# -----------------------------------------------------------------------------
+.git/
+.gitattributes
+
+# -----------------------------------------------------------------------------
 # Python
+# -----------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 env/
+.venv/
+venv/
 build/
 develop-eggs/
 dist/
@@ -22,31 +45,58 @@ wheels/
 .installed.cfg
 *.egg
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .coverage
+coverage.xml
 htmlcov/
-.env
-.env.local
 
+# -----------------------------------------------------------------------------
 # Node / Next.js
+# -----------------------------------------------------------------------------
 node_modules/
 .next/
 out/
+coverage/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# Application Runtime Storage
-uploads/*
+# -----------------------------------------------------------------------------
+# Application runtime storage (uploads, exports, local databases)
+# -----------------------------------------------------------------------------
+uploads/
+exports/
+*.sqlite3
+*.db
 !uploads/.gitkeep
-exports/*
 !exports/.gitkeep
+backend/uploads/
+backend/exports/
 test_output.pdf
 
+# -----------------------------------------------------------------------------
+# Celery runtime
+# -----------------------------------------------------------------------------
+celerybeat-schedule
+celerybeat-schedule.*
+*.pid
+
+# -----------------------------------------------------------------------------
+# Docker / local orchestration overrides
+# -----------------------------------------------------------------------------
+docker-compose.override.yml
+docker-compose.*.local.yml
+
+# -----------------------------------------------------------------------------
 # OS & IDE
+# -----------------------------------------------------------------------------
 .DS_Store
 Thumbs.db
+desktop.ini
 .vscode/
 .idea/
 *.swp
 *.swo
+*~

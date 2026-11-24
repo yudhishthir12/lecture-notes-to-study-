@@ -25,8 +25,8 @@ class Settings(BaseSettings):
         description="Async PostgreSQL connection string using asyncpg driver",
     )
     DATABASE_URL_SYNC: str | None = Field(
-        default="postgresql://lectureforge:lectureforge@localhost:5432/lectureforge",
-        description="Synchronous PostgreSQL connection string for sync migrations if needed",
+        default=None,
+        description="Synchronous PostgreSQL connection string. If unset, it is derived from DATABASE_URL.",
     )
 
     # Redis & Celery
@@ -49,7 +49,7 @@ class Settings(BaseSettings):
         description="Google Gemini API key. If not set, AI generation endpoints will return 400.",
     )
     GEMINI_MODEL: str = Field(
-        default="gemini-3.5-flash-lite",
+        default="gemini-2.0-flash",
         description="Default Gemini model to use for extraction, summarization, and evaluation",
     )
 
@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     )
 
     # Security & CORS
+    ENVIRONMENT: str = Field(
+        default="development",
+        description="Deployment environment: development | staging | production",
+    )
     CORS_ORIGINS: list[str] | str = Field(
         default=["http://localhost:3000", "http://frontend:3000"],
         description="List of allowed CORS origins or comma-separated string",
@@ -104,6 +108,38 @@ class Settings(BaseSettings):
         default=200,
         description="Overlap size between contiguous document text chunks",
     )
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def normalize_async_database_url(cls, value: Any) -> Any:
+        """Normalize provider connection strings into an asyncpg DSN.
+
+        Accepts plain ``postgres://`` / ``postgresql://`` strings (as emitted by
+        Render, Heroku, Railway, etc.) and rewrites them to the ``postgresql+asyncpg``
+        scheme the async engine requires. ``sslmode`` is translated to the ``ssl``
+        connect arg that asyncpg understands.
+        """
+        if not isinstance(value, str) or not value.strip():
+            return value
+        url = value.strip()
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://") :]
+        if url.startswith("postgresql://"):
+            url = "postgresql+asyncpg://" + url[len("postgresql://") :]
+        return url.replace("sslmode=", "ssl=")
+
+    @field_validator("DATABASE_URL_SYNC", mode="before")
+    @classmethod
+    def normalize_sync_database_url(cls, value: Any) -> Any:
+        """Normalize a provider connection string into a sync (psycopg2) DSN."""
+        if not isinstance(value, str) or not value.strip():
+            return value
+        url = value.strip()
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://") :]
+        url = url.replace("postgresql+asyncpg://", "postgresql://")
+        url = url.replace("sqlite+aiosqlite://", "sqlite://")
+        return url.replace("ssl=require", "sslmode=require")
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

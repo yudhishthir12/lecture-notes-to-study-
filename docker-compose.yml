@@ -62,7 +62,9 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
       - UPLOAD_DIR=/app/uploads
       - EXPORT_DIR=/app/exports
-      - CORS_ORIGINS=["http://localhost:3000","http://frontend:3000"]
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - RUN_MIGRATIONS=true
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://frontend:3000}
     volumes:
       - uploads_data:/app/uploads
       - exports_data:/app/exports
@@ -89,7 +91,7 @@ services:
       dockerfile: Dockerfile
     container_name: lectureforge-celery-worker
     restart: unless-stopped
-    command: celery -A app.workers.celery_app worker --loglevel=info -Q default
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info", "-Q", "default"]
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME || exit 0"]
       interval: 30s
@@ -106,7 +108,9 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
       - UPLOAD_DIR=/app/uploads
       - EXPORT_DIR=/app/exports
-      - CORS_ORIGINS=["http://localhost:3000","http://frontend:3000"]
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - RUN_MIGRATIONS=false
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://frontend:3000}
     volumes:
       - uploads_data:/app/uploads
       - exports_data:/app/exports

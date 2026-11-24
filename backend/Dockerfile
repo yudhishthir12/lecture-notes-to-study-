@@ -28,6 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdk-pixbuf-2.0-0 \
     shared-mime-info \
     curl \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -43,13 +44,16 @@ COPY . /app
 # Create persistent storage directories for uploads and exported study packs
 RUN mkdir -p /app/uploads /app/exports && chmod -R 777 /app/uploads /app/exports
 
-# Create dedicated non-root application user for container security
+# Create dedicated non-root application user and the persistent-data root
 RUN addgroup --system --gid 1001 appgroup && \
     adduser --system --uid 1001 --ingroup appgroup --home /app appuser && \
+    mkdir -p /app/data && \
     chown -R appuser:appgroup /app && \
-    chmod -R 777 /app/uploads /app/exports
+    chmod +x /app/entrypoint.sh
 
-USER appuser
+# NOTE: the container starts as root so entrypoint.sh can fix ownership of any
+# mounted volumes/disks (e.g. Render persistent disks are root-owned), then it
+# drops privileges to `appuser` before running the application.
 
 # Expose FastAPI HTTP server port
 EXPOSE 8000
@@ -57,6 +61,9 @@ EXPOSE 8000
 # Health check definition
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
+
+# Fix volume ownership + run migrations, then start the given command as appuser
+ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Default command: launch production Uvicorn server
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

@@ -18,6 +18,7 @@
 - [Key Features](#key-features)
 - [Tech Stack](#tech-stack)
 - [Quick Start with Docker](#quick-start-with-docker)
+- [Deploy to Render (Blueprint)](#deploy-to-render-blueprint)
 - [Local Development Setup (without Docker)](#local-development-setup-without-docker)
 - [Environment Variables](#environment-variables)
 - [API Endpoints Reference](#api-endpoints-reference)
@@ -200,6 +201,57 @@ To wipe persistent database and upload volumes:
 docker compose down -v
 ```
 
+> **Note:** Docker Compose automatically provisions the `postgres` and `redis`
+> images on the internal `lectureforge-network` bridge. The backend connects to
+> them by service name (`postgres:5432`, `redis:6379`) — no external database is
+> required. All of this is driven entirely by `.env`, so you never edit hosts or
+> credentials inside the compose file.
+
+---
+
+## ☁️ Deploy to Render (Blueprint)
+
+Render cannot run `docker compose`, so this repo ships a **[`render.yaml`](render.yaml)**
+Blueprint that provisions the full stack (managed Postgres + Redis + services) on
+Render's private network with zero manual wiring.
+
+### What gets created
+
+| Render resource | Type | Purpose |
+| :--- | :--- | :--- |
+| `lectureforge-db` | PostgreSQL | Managed database (`DATABASE_URL` injected automatically) |
+| `lectureforge-redis` | Key Value (Redis) | Celery broker + result backend |
+| `lectureforge-api` | Web (Docker) | FastAPI **and** Celery worker, with a persistent disk |
+| `lectureforge-frontend` | Web (Docker) | Next.js dashboard |
+
+### Deploy steps
+
+1. Push this repo to GitHub/GitLab.
+2. In the Render Dashboard: **New → Blueprint**, select the repo. Render reads `render.yaml`.
+3. When prompted, supply the secret **`GEMINI_API_KEY`** (and adjust plans if you like).
+4. Click **Apply**. Render builds both Docker images and wires the services together.
+
+### Why the API and worker share one service
+
+The Celery worker reads uploaded files **directly from disk** (`UPLOAD_DIR`). On
+Render, every service has its own filesystem, so a separate worker would never see
+the API's uploads. The Blueprint therefore runs Uvicorn and the Celery worker in a
+**single container** backed by one persistent disk (`/app/data`), mirroring the
+shared `uploads_data` / `exports_data` volumes used by Docker Compose.
+
+### Render gotchas to know
+
+- **Persistent disks require a paid instance** (`plan: starter`). On the Free plan,
+  uploads are wiped on every deploy/restart.
+- **`NEXT_PUBLIC_API_URL` is baked in at build time.** Render forwards service env
+  vars as Docker build args, so the Blueprint points the frontend at the backend's
+  `RENDER_EXTERNAL_URL`. If you rename services, update those references.
+- **Migrations run automatically** on container start via `backend/entrypoint.sh`
+  (`RUN_MIGRATIONS=true`). Workers should set `RUN_MIGRATIONS=false` (Compose already does).
+
+> Prefer a self-managed server (VPS/EC2)? Just use the Docker Compose path above —
+> it provisions its own Postgres and Redis on the Docker network.
+
 ---
 
 ## 💻 Local Development Setup (without Docker)
@@ -263,17 +315,23 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 | Variable | Description | Default | Required? |
 | :--- | :--- | :--- | :---: |
+| `ENVIRONMENT` | Deployment environment (`development`/`staging`/`production`) | `development` | No |
 | `GEMINI_API_KEY` | Google Gemini API Key for synthesis and evaluation | `None` | **Yes** (for AI generation) |
 | `GEMINI_MODEL` | Gemini LLM model identifier | `gemini-2.0-flash` | No |
-| `DATABASE_URL` | Async PostgreSQL connection string | `postgresql+asyncpg://lectureforge:lectureforge@localhost:5432/lectureforge` | Yes |
-| `DATABASE_URL_SYNC` | Synchronous PostgreSQL connection string | `postgresql://lectureforge:lectureforge@localhost:5432/lectureforge` | Yes |
-| `POSTGRES_USER` | PostgreSQL superuser | `lectureforge` | Yes |
-| `POSTGRES_PASSWORD` | PostgreSQL password | `lectureforge` | Yes |
-| `POSTGRES_DB` | PostgreSQL database name | `lectureforge` | Yes |
+| `DATABASE_URL` | Async PostgreSQL connection string (plain `postgres://` from Render/Heroku is auto-normalized) | `postgresql+asyncpg://lectureforge:lectureforge@localhost:5432/lectureforge` | Yes |
+| `DATABASE_URL_SYNC` | Synchronous PostgreSQL connection string (derived from `DATABASE_URL` if omitted) | `postgresql://lectureforge:lectureforge@localhost:5432/lectureforge` | No |
+| `POSTGRES_USER` | PostgreSQL superuser | `lectureforge` | Yes (Compose) |
+| `POSTGRES_PASSWORD` | PostgreSQL password | `lectureforge` | Yes (Compose) |
+| `POSTGRES_DB` | PostgreSQL database name | `lectureforge` | Yes (Compose) |
 | `REDIS_URL` | Redis instance URL | `redis://localhost:6379/0` | Yes |
 | `CELERY_BROKER_URL` | Message broker for asynchronous tasks | `redis://localhost:6379/0` | Yes |
 | `CELERY_RESULT_BACKEND` | Task result store | `redis://localhost:6379/1` | Yes |
-| `NEXT_PUBLIC_API_URL` | Public-facing backend URL for frontend requests | `http://localhost:8000` | Yes |
+| `CELERY_CONCURRENCY` | Celery worker concurrency (prefork processes) | `2` | No |
+| `RUN_MIGRATIONS` | Run `alembic upgrade head` on container start | `true` | No |
+| `NEXT_PUBLIC_API_URL` | Public-facing backend URL for frontend requests (baked at build time) | `/api` (relative) | Yes |
+| `BACKEND_URL` | Internal backend URL for the Next.js server-side proxy | `http://backend:8000` | No |
+| `FRONTEND_URL` | Public frontend URL (used for links/CORS) | `http://localhost:3000` | No |
+| `NEXT_PUBLIC_IMAGE_DOMAINS` | Comma-separated hostnames allowed by `next/image` | `localhost` | No |
 | `MAX_UPLOAD_SIZE_MB` | Maximum allowed document upload file size | `50` | No |
 | `UPLOAD_DIR` | Filesystem storage path for uploaded documents | `uploads` | No |
 | `EXPORT_DIR` | Filesystem storage path for exported files | `exports` | No |
@@ -281,7 +339,10 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 | `MAX_RETRY_ATTEMPTS` | Automated self-correction loop limit | `2` | No |
 | `CHUNK_SIZE` | Target character size for semantic text chunking | `2000` | No |
 | `CHUNK_OVERLAP` | Character overlap between consecutive chunks | `200` | No |
-| `CORS_ORIGINS` | Comma-separated allowed origins for CORS | `http://localhost:3000,http://frontend:3000` | No |
+| `CORS_ORIGINS` | Comma-separated (or JSON array) allowed origins for CORS | `http://localhost:3000,http://frontend:3000` | No |
+| `SECRET_KEY` | Secret for security operations/token signing (**change in production**) | insecure dev default | Yes (prod) |
+| `LOG_LEVEL` | Application logging level | `INFO` | No |
+| `LOG_FORMAT` | `console` (dev) or `json` (production log aggregation) | `console` | No |
 
 ---
 
@@ -322,11 +383,14 @@ Interactive OpenAPI documentation is live at `/docs` (Swagger UI) and `/redoc` (
 ```
 lectureforge-ai/
 ├── docker-compose.yml              # Multi-container orchestration (5 services)
+├── render.yaml                     # Render Blueprint (managed Postgres + Redis + services)
 ├── .env.example                    # Template environment variables
 ├── README.md                       # Comprehensive system documentation
 │
 ├── backend/
 │   ├── Dockerfile                  # Production Debian-slim container with WeasyPrint deps
+│   ├── .dockerignore               # Build-context exclusions (secrets, caches, tests)
+│   ├── entrypoint.sh               # Applies migrations, then launches the process
 │   ├── pytest.ini                  # Pytest configuration (auto-asyncio, filters)
 │   ├── requirements.txt            # Locked backend dependencies
 │   ├── alembic.ini                 # Database migration configuration
@@ -379,6 +443,8 @@ lectureforge-ai/
 │
 └── frontend/
     ├── Dockerfile                  # Multi-stage Next.js standalone runner
+    ├── .dockerignore               # Build-context exclusions (node_modules, .next, secrets)
+    ├── public/                     # Static assets served by Next.js
     ├── package.json                # Frontend packages & scripts
     ├── vitest.config.ts            # Vitest unit test configuration
     ├── next.config.js              # Next.js standalone output & rewrites
@@ -492,6 +558,11 @@ The generation pipeline can be fine-tuned via `.env` settings:
   ```bash
   docker compose logs -f celery-worker
   ```
+
+### 5. Frontend build fails on `next/font` / Google Fonts
+- **Symptoms**: `Failed to fetch 'Inter' from Google Fonts` during `docker compose build` or on the CI runner.
+- **Cause**: `app/layout.tsx` loads Inter via `next/font/google`, which downloads the font at **build time**. A build environment without outbound internet access to `fonts.googleapis.com` will fail.
+- **Fix**: Render and most CI runners have egress, so builds normally succeed. For offline/hermetic builds, either allow access to `fonts.googleapis.com` or self-host the font with `next/font/local`.
 
 ---
 
